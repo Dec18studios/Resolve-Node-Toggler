@@ -1,0 +1,50 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Node Toggle",
+  "version": "2.0.0",
+  "identifier": "com.dec18studios.nodetoggle",
+  "build": {
+    "beforeDevCommand": "npm run dev -- --host",
+    "devUrl": "http://localhost:5174",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Node Toggle",
+        "width": 780,
+        "height": 760,
+        "minWidth": 640,
+        "minHeight": 500,
+        "resizable": true,
+        "decorations": true
+      }
+    ],
+    "security": {
+      "capabilities": ["default"]
+    }
+  },
+  "bundle": {
+    "active": true,
+    "icon": [
+      "icons/icon.ico"
+    ],
+    "targets": [
+      "app",
+      "dmg",
+      "nsis",
+      "deb",
+      "appimage"
+    ],
+    "resources": [
+      "../sidecar/resolve_bridge.py"
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    }
+  }
+}

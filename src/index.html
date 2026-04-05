@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Node Toggle</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- Status Bar -->
+  <header id="status-bar">
+    <span id="status-dot" class="dot disconnected">●</span>
+    <span id="status-text">Connecting...</span>
+    <span id="clip-name"></span>
+  </header>
+
+  <!-- Main Content -->
+  <main id="sections-container"></main>
+
+  <!-- Bottom Bar -->
+  <footer id="bottom-bar">
+    <div class="bottom-left">
+      <button class="btn" id="btn-refresh">⟳ Refresh</button>
+      <button class="btn" id="btn-scan">📋 Scan</button>
+      <span id="flash-msg"></span>
+    </div>
+    <div class="bottom-right">
+      <button class="btn btn-sm" id="btn-save-profile">💾 Save</button>
+      <button class="btn btn-sm" id="btn-load-profile">📂 Load</button>
+      <span id="active-profile"></span>
+      <button class="btn btn-danger" id="btn-master-off">⚡ ALL OFF</button>
+    </div>
+  </footer>
+
+  <!-- Hotkey legend -->
+  <div id="hotkey-legend"></div>
+
+  <!-- Scan Modal -->
+  <div id="scan-modal" class="modal hidden">
+    <div class="modal-content modal-wide">
+      <h3>Node Scan Detail</h3>
+      <pre id="scan-output"></pre>
+      <button class="btn" id="btn-scan-close">Close</button>
+    </div>
+  </div>
+
+  <!-- Profile Save Modal -->
+  <div id="profile-save-modal" class="modal hidden">
+    <div class="modal-content">
+      <h3>Save Profile</h3>
+      <input type="text" id="profile-name-input" placeholder="Profile name..." />
+      <div id="existing-profiles-save"></div>
+      <div class="modal-buttons">
+        <button class="btn btn-primary" id="btn-profile-save-confirm">Save</button>
+        <button class="btn" id="btn-profile-save-cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Profile Load Modal -->
+  <div id="profile-load-modal" class="modal hidden">
+    <div class="modal-content">
+      <h3>Load Profile</h3>
+      <div id="profile-list-load"></div>
+      <button class="btn" id="btn-profile-load-cancel">Cancel</button>
+    </div>
+  </div>
+
+  <script type="module" src="main.js"></script>
+</body>
+</html>

@@ -1,0 +1,28 @@
+[package]
+name = "node-toggle"
+version = "2.0.0"
+edition = "2021"
+description = "DaVinci Resolve node toggle controller"
+
+[lib]
+name = "node_toggle_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tauri = { version = "2", features = [] }
+tauri-plugin-shell = "2"
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-process = "2"
+dirs = "6.0"

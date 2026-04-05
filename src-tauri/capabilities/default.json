@@ -1,0 +1,16 @@
+{
+  "identifier": "default",
+  "description": "Default capabilities for NodeToggle",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "shell:allow-spawn",
+    "shell:allow-stdin-write",
+    "shell:allow-kill",
+    "global-shortcut:allow-register",
+    "global-shortcut:allow-unregister",
+    "global-shortcut:allow-is-registered",
+    "global-shortcut:allow-register-all",
+    "global-shortcut:allow-unregister-all"
+  ]
+}
