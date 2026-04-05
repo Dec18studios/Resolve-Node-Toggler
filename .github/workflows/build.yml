@@ -107,7 +107,7 @@ jobs:
       matrix:
         include:
           - platform: windows-latest
-            args: "--bundles nsis"
+            args: "--bundles nsis --config src-tauri/tauri.windows.conf.json"
           - platform: macos-latest
             args: "--target universal-apple-darwin --bundles app,dmg"
           - platform: ubuntu-latest
@@ -149,6 +149,20 @@ jobs:
             libxdo-dev \
             patchelf \
             wget
+
+      - name: Bundle portable Python for Windows
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          $pyVersion = "3.12.9"
+          $url = "https://www.python.org/ftp/python/$pyVersion/python-$pyVersion-embed-amd64.zip"
+          $zipPath = "$env:RUNNER_TEMP\python-embed.zip"
+          $extractDir = "python"
+          Write-Host "Downloading Python $pyVersion embeddable..."
+          Invoke-WebRequest -Uri $url -OutFile $zipPath
+          Expand-Archive -Path $zipPath -DestinationPath $extractDir -Force
+          Write-Host "Bundled Python contents:"
+          Get-ChildItem $extractDir | Select-Object Name, Length
 
       - name: Cache Rust build
         uses: swatinem/rust-cache@v2

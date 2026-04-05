@@ -1,0 +1,8 @@
+{
+  "bundle": {
+    "resources": [
+      "../sidecar/resolve_bridge.py",
+      "../python/**"
+    ]
+  }
+}

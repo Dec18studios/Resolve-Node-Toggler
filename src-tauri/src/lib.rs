@@ -118,7 +118,7 @@ fn save_state_to_disk(state: &std::collections::HashMap<String, bool>) {
 // ---------------------------------------------------------------------------
 
 fn find_python() -> Option<String> {
-    // Try common Python executable names
+    // Try common Python executable names on PATH first
     let candidates = if cfg!(target_os = "windows") {
         vec!["python", "python3", "py"]
     } else {
@@ -136,6 +136,20 @@ fn find_python() -> Option<String> {
             }
         }
     }
+
+    // Fallback: bundled portable Python next to the executable (Windows)
+    if cfg!(target_os = "windows") {
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(exe_dir) = exe.parent() {
+                let bundled = exe_dir.join("python").join("python.exe");
+                if bundled.is_file() {
+                    eprintln!("[TAURI] Using bundled Python: {}", bundled.display());
+                    return Some(bundled.to_string_lossy().into_owned());
+                }
+            }
+        }
+    }
+
     None
 }
 
