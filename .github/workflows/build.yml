@@ -191,6 +191,21 @@ jobs:
             src-tauri/target/release/bundle/nsis/*.exe
           if-no-files-found: error
 
+      - name: Create Windows portable archive for Plugin Manager
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $version = node -p "require('./package.json').version"
+          $zipDir = "node-toggle-portable"
+          New-Item -ItemType Directory $zipDir -Force
+          Copy-Item "src-tauri\target\release\node-toggle.exe" "$zipDir\"
+          Copy-Item "sidecar\resolve_bridge.py" "$zipDir\"
+          if (Test-Path "python") { Copy-Item -Recurse "python" "$zipDir\python" }
+          Compress-Archive -Path "$zipDir\*" -DestinationPath "node-toggle-portable-windows-x64.zip"
+          gh release upload "v$version" "node-toggle-portable-windows-x64.zip" --clobber
+
       - name: Upload macOS workflow artifacts
         if: matrix.platform == 'macos-latest'
         uses: actions/upload-artifact@v6
@@ -201,6 +216,17 @@ jobs:
             src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz
           if-no-files-found: error
 
+      - name: Create macOS portable archive for Plugin Manager
+        if: matrix.platform == 'macos-latest'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          cd src-tauri/target/universal-apple-darwin/release/bundle/macos/
+          tar czf "$GITHUB_WORKSPACE/node-toggle-portable-macos-universal.tar.gz" "Node Toggle.app"
+          cd "$GITHUB_WORKSPACE"
+          gh release upload "v$VERSION" "node-toggle-portable-macos-universal.tar.gz" --clobber
+
       - name: Upload Linux workflow artifacts
         if: matrix.platform == 'ubuntu-latest'
         uses: actions/upload-artifact@v6
@@ -209,3 +235,16 @@ jobs:
           path: |
             src-tauri/target/release/bundle/appimage/*.AppImage
           if-no-files-found: error
+
+      - name: Create Linux portable archive for Plugin Manager
+        if: matrix.platform == 'ubuntu-latest'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          cd src-tauri/target/release/bundle/appimage/
+          APPIMAGE=$(ls *.AppImage | head -1)
+          cp "$APPIMAGE" node-toggle.AppImage
+          tar czf "$GITHUB_WORKSPACE/node-toggle-portable-linux-x64.tar.gz" "node-toggle.AppImage"
+          cd "$GITHUB_WORKSPACE"
+          gh release upload "v$VERSION" "node-toggle-portable-linux-x64.tar.gz" --clobber
