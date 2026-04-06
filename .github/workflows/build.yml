@@ -157,7 +157,7 @@ jobs:
           $pyVersion = "3.12.9"
           $url = "https://www.python.org/ftp/python/$pyVersion/python-$pyVersion-embed-amd64.zip"
           $zipPath = "$env:RUNNER_TEMP\python-embed.zip"
-          $extractDir = "python"
+          $extractDir = "src-tauri/python"
           Write-Host "Downloading Python $pyVersion embeddable..."
           Invoke-WebRequest -Uri $url -OutFile $zipPath
           Expand-Archive -Path $zipPath -DestinationPath $extractDir -Force
@@ -202,7 +202,7 @@ jobs:
           New-Item -ItemType Directory $zipDir -Force
           Copy-Item "src-tauri\target\release\node-toggle.exe" "$zipDir\"
           Copy-Item "sidecar\resolve_bridge.py" "$zipDir\"
-          if (Test-Path "python") { Copy-Item -Recurse "python" "$zipDir\python" }
+          if (Test-Path "src-tauri\python") { Copy-Item -Recurse "src-tauri\python" "$zipDir\python" }
           Compress-Archive -Path "$zipDir\*" -DestinationPath "node-toggle-portable-windows-x64.zip"
           gh release upload "v$version" "node-toggle-portable-windows-x64.zip" --clobber
 
