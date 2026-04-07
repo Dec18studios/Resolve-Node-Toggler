@@ -248,3 +248,25 @@ jobs:
           tar czf "$GITHUB_WORKSPACE/node-toggle-portable-linux-x64.tar.gz" "node-toggle.AppImage"
           cd "$GITHUB_WORKSPACE"
           gh release upload "v$VERSION" "node-toggle-portable-linux-x64.tar.gz" --clobber
+
+  # Notify Plugin Manager to regenerate pages with new release info
+  notify_plugin_manager:
+    needs: build
+    runs-on: ubuntu-latest
+    if: always() && needs.build.result == 'success'
+    steps:
+      - name: Trigger Plugin Manager pages deploy
+        env:
+          PLUGIN_PAT: ${{ secrets.PLUGIN_REPOS_PAT }}
+        run: |
+          if [ -z "$PLUGIN_PAT" ]; then
+            echo "::warning::PLUGIN_REPOS_PAT not set — skipping Plugin Manager notification"
+            exit 0
+          fi
+          curl -fsSL \
+            -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $PLUGIN_PAT" \
+            "https://api.github.com/repos/dec18studios/Dec18-Plugin-Manager/dispatches" \
+            -d '{"event_type":"plugin-release","client_payload":{"plugin":"resolve-node-toggler","repo":"Resolve-Node-Toggler"}}'
+          echo "::notice::Dispatched plugin-release event to Dec18-Plugin-Manager"
