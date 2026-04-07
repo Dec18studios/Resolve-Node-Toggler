@@ -66,6 +66,22 @@
     </div>
   </div>
 
+  <!-- Hotkey Recording Modal -->
+  <div id="hotkey-modal" class="modal hidden">
+    <div class="modal-content hotkey-modal-content">
+      <h3>Set Hotkey</h3>
+      <p id="hotkey-modal-slot" class="hotkey-modal-slot"></p>
+      <div id="hotkey-display" class="hotkey-display">Press a key combo…</div>
+      <div class="hotkey-modal-hint">Hold modifier keys + a number/letter, then release</div>
+      <div class="modal-buttons">
+        <button class="btn btn-danger btn-sm" id="btn-hotkey-clear">Clear</button>
+        <div style="flex:1"></div>
+        <button class="btn" id="btn-hotkey-cancel">Cancel</button>
+        <button class="btn btn-primary" id="btn-hotkey-save">Save</button>
+      </div>
+    </div>
+  </div>
+
   <script type="module" src="main.js"></script>
 </body>
 </html>

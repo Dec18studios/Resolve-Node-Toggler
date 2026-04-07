@@ -25,6 +25,8 @@ let stateData = {};
 let graphsCache = {};   // section -> { context, num_nodes }
 let nodesCache = {};    // section -> [node, ...]
 let flashTimer = null;
+let registeredShortcuts = new Map();  // shortcut string -> { section, slot }
+let hotkeyModalState = null;          // { section, slot, resolve, reject }
 
 // ---------------------------------------------------------------------------
 // DOM refs
@@ -51,8 +53,10 @@ function flash(msg, ms = 3000) {
 // State key (matches Python version for compatibility)
 // ---------------------------------------------------------------------------
 function stateKey(section, tool, label, context) {
-  if (label) return `${section}:${tool}:${label}:${context}`;
-  return `${section}:${tool}:${context}`;
+  // Use :: separators to avoid ambiguity with tool names containing colons
+  // (e.g. "OFX: DCTL").  Matches the original Python version's format.
+  const toolPart = label ? `${tool}:${label}` : tool;
+  return `${section}::${toolPart}::${context}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -213,6 +217,15 @@ function buildSlotRow(sectionKey, slotNum, savedTool = "", savedLabel = "") {
   toggleBtn.addEventListener("click", () => doToggle(sectionKey, slotNum, toggleBtn));
   row.appendChild(toggleBtn);
 
+  // Hotkey button
+  const savedHotkey = config.slots[sectionKey]?.[String(slotNum)]?.hotkey;
+  const hotkeyBtn = document.createElement("button");
+  hotkeyBtn.className = "hotkey-btn" + (savedHotkey ? " has-hotkey" : "");
+  hotkeyBtn.textContent = savedHotkey ? formatShortcutDisplay(savedHotkey) : "⌨";
+  hotkeyBtn.title = savedHotkey ? `Hotkey: ${savedHotkey}` : "Click to set hotkey";
+  hotkeyBtn.addEventListener("click", () => openHotkeyModal(sectionKey, slotNum, hotkeyBtn));
+  row.appendChild(hotkeyBtn);
+
   // Remove button
   const removeBtn = document.createElement("button");
   removeBtn.className = "remove-btn";
@@ -236,7 +249,8 @@ function onToolChange(sectionKey, slotNum, select) {
   if (!tool) return;
 
   if (!config.slots[sectionKey]) config.slots[sectionKey] = {};
-  config.slots[sectionKey][String(slotNum)] = { tool, label };
+  const existing = config.slots[sectionKey][String(slotNum)] || {};
+  config.slots[sectionKey][String(slotNum)] = { tool, label, hotkey: existing.hotkey || undefined };
   saveConfig();
 
   const sec = SECTIONS.find(s => s.key === sectionKey);
@@ -820,56 +834,244 @@ async function loadState() {
 }
 
 // ---------------------------------------------------------------------------
+// Hotkey utilities
+// ---------------------------------------------------------------------------
+
+// Default hotkey mappings (fallback when no custom binding is set)
+function getDefaultMapping() {
+  const isMac = navigator.platform.includes("Mac");
+  return isMac ? {
+    clip: "Option+CommandOrControl",
+    timeline: "Option+Control",
+    pre_group: "Option+Shift",
+    post_group: "Option+Control+Shift",
+  } : {
+    clip: "Control+Shift",
+    timeline: "Control+Alt",
+    pre_group: "Alt+Shift",
+    post_group: "Control+Alt+Shift",
+  };
+}
+
+function getDefaultMasterKey() {
+  const isMac = navigator.platform.includes("Mac");
+  return isMac ? "Option+CommandOrControl+0" : "Control+Shift+0";
+}
+
+// Convert a Tauri shortcut string to a nice display label
+function formatShortcutDisplay(shortcut) {
+  if (!shortcut) return "⌨";
+  const isMac = navigator.platform.includes("Mac");
+  if (isMac) {
+    return shortcut
+      .replace(/CommandOrControl/g, "⌘")
+      .replace(/Option/g, "⌥")
+      .replace(/Control/g, "⌃")
+      .replace(/Shift/g, "⇧")
+      .replace(/\+/g, "");
+  }
+  return shortcut;
+}
+
+// Convert a browser KeyboardEvent to a Tauri accelerator string
+function keyEventToAccelerator(e) {
+  const parts = [];
+  const isMac = navigator.platform.includes("Mac");
+
+  if (isMac) {
+    if (e.altKey) parts.push("Option");
+    if (e.metaKey) parts.push("CommandOrControl");
+    if (e.ctrlKey && !e.metaKey) parts.push("Control");
+    if (e.shiftKey) parts.push("Shift");
+  } else {
+    if (e.ctrlKey) parts.push("Control");
+    if (e.altKey) parts.push("Alt");
+    if (e.shiftKey) parts.push("Shift");
+  }
+
+  // Ignore pure modifier keypresses
+  const key = e.key;
+  if (["Meta", "Control", "Alt", "Shift", "CapsLock", "Tab"].includes(key)) {
+    return { partial: parts.join("+"), full: null };
+  }
+
+  // Map common keys to Tauri accelerator names
+  let keyName;
+  if (key >= "0" && key <= "9") keyName = key;
+  else if (key >= "a" && key <= "z") keyName = key.toUpperCase();
+  else if (key >= "A" && key <= "Z") keyName = key;
+  else if (key >= "F1" && key <= "F24") keyName = key;
+  else if (key === " ") keyName = "Space";
+  else if (key === "Escape") keyName = "Escape";
+  else if (key === "Enter") keyName = "Enter";
+  else if (key === "Backspace") keyName = "Backspace";
+  else if (key === "Delete") keyName = "Delete";
+  else if (key === "ArrowUp") keyName = "Up";
+  else if (key === "ArrowDown") keyName = "Down";
+  else if (key === "ArrowLeft") keyName = "Left";
+  else if (key === "ArrowRight") keyName = "Right";
+  else keyName = key.toUpperCase();
+
+  if (parts.length === 0) {
+    // Require at least one modifier
+    return { partial: keyName, full: null };
+  }
+
+  parts.push(keyName);
+  return { partial: null, full: parts.join("+") };
+}
+
+// ---------------------------------------------------------------------------
+// Hotkey recording modal
+// ---------------------------------------------------------------------------
+
+function openHotkeyModal(sectionKey, slotNum, hotkeyBtn) {
+  const modal = document.getElementById("hotkey-modal");
+  const display = document.getElementById("hotkey-display");
+  const slotLabel = document.getElementById("hotkey-modal-slot");
+  const sec = SECTIONS.find(s => s.key === sectionKey);
+  const slotCfg = config.slots[sectionKey]?.[String(slotNum)];
+  const toolName = slotCfg?.tool || "(empty)";
+
+  slotLabel.textContent = `${sec.label} · Slot ${slotNum} · ${toolName}`;
+
+  const current = slotCfg?.hotkey || "";
+  display.textContent = current ? formatShortcutDisplay(current) : "Press a key combo…";
+  display.classList.remove("recording");
+
+  hotkeyModalState = { section: sectionKey, slot: slotNum, hotkeyBtn, captured: current };
+  modal.classList.remove("hidden");
+
+  // Start listening for keys
+  display.classList.add("recording");
+}
+
+function closeHotkeyModal() {
+  document.getElementById("hotkey-modal").classList.add("hidden");
+  hotkeyModalState = null;
+}
+
+function onHotkeyKeyDown(e) {
+  if (!hotkeyModalState) return;
+  const modal = document.getElementById("hotkey-modal");
+  if (modal.classList.contains("hidden")) return;
+
+  e.preventDefault();
+  e.stopPropagation();
+
+  const display = document.getElementById("hotkey-display");
+  const result = keyEventToAccelerator(e);
+
+  if (result.full) {
+    hotkeyModalState.captured = result.full;
+    display.textContent = formatShortcutDisplay(result.full);
+    display.classList.remove("recording");
+  } else if (result.partial) {
+    display.textContent = formatShortcutDisplay(result.partial) + "…";
+    display.classList.add("recording");
+  }
+}
+
+async function saveHotkeyFromModal() {
+  if (!hotkeyModalState) return;
+  const { section, slot, hotkeyBtn, captured } = hotkeyModalState;
+
+  if (!config.slots[section]) config.slots[section] = {};
+  if (!config.slots[section][String(slot)]) {
+    config.slots[section][String(slot)] = { tool: "", label: "" };
+  }
+  config.slots[section][String(slot)].hotkey = captured || undefined;
+  await saveConfig();
+
+  // Update the button display
+  if (captured) {
+    hotkeyBtn.textContent = formatShortcutDisplay(captured);
+    hotkeyBtn.className = "hotkey-btn has-hotkey";
+    hotkeyBtn.title = `Hotkey: ${captured}`;
+  } else {
+    hotkeyBtn.textContent = "⌨";
+    hotkeyBtn.className = "hotkey-btn";
+    hotkeyBtn.title = "Click to set hotkey";
+  }
+
+  closeHotkeyModal();
+
+  // Re-register all hotkeys to pick up the change
+  await setupHotkeys();
+  flash(captured ? `Hotkey set: ${formatShortcutDisplay(captured)}` : "Hotkey cleared");
+}
+
+function clearHotkeyFromModal() {
+  if (!hotkeyModalState) return;
+  hotkeyModalState.captured = "";
+  const display = document.getElementById("hotkey-display");
+  display.textContent = "Cleared — click Save to confirm";
+  display.classList.remove("recording");
+}
+
+// ---------------------------------------------------------------------------
 // Global hotkeys
 // ---------------------------------------------------------------------------
 async function setupHotkeys() {
   try {
-    const { register } = await import("@tauri-apps/plugin-global-shortcut");
-    const isMac = navigator.platform.includes("Mac");
+    const { register, unregisterAll } = await import("@tauri-apps/plugin-global-shortcut");
 
-    const mapping = isMac ? {
-      clip: "Option+CommandOrControl",
-      timeline: "Option+Control",
-      pre_group: "Option+Shift",
-      post_group: "Option+Control+Shift",
-    } : {
-      clip: "Control+Shift",
-      timeline: "Control+Alt",
-      pre_group: "Alt+Shift",
-      post_group: "Control+Alt+Shift",
-    };
+    // Unregister everything first to avoid conflicts
+    try { await unregisterAll(); } catch (_) { /* ignore */ }
+    registeredShortcuts.clear();
+
+    const isMac = navigator.platform.includes("Mac");
+    const defaults = getDefaultMapping();
+    let registeredCount = 0;
 
     for (const sec of SECTIONS) {
-      const mod = mapping[sec.key];
+      const sectionSlots = config.slots[sec.key] || {};
       for (let i = 1; i <= 9; i++) {
-        const shortcut = `${mod}+${i}`;
+        const slotCfg = sectionSlots[String(i)];
+        // Use custom hotkey if set, otherwise use default pattern
+        const shortcut = slotCfg?.hotkey || `${defaults[sec.key]}+${i}`;
+
+        // Skip if already registered (user assigned same key to two slots)
+        if (registeredShortcuts.has(shortcut)) continue;
+
         try {
+          const secKey = sec.key;
+          const slotNum = i;
           await register(shortcut, async () => {
-            // Find the slot's toggle button and trigger it
-            const row = getSectionEl(sec.key)?.querySelector(`.slot-row[data-slot="${i}"]`);
+            const row = getSectionEl(secKey)?.querySelector(`.slot-row[data-slot="${slotNum}"]`);
             const btn = row?.querySelector(".toggle-btn");
             if (btn) {
-              await doToggle(sec.key, i, btn);
+              await doToggle(secKey, slotNum, btn);
             } else {
-              flash(`Hotkey: no slot ${sec.short}:${i} configured`);
+              flash(`Hotkey: no slot ${sec.short}:${slotNum} configured`);
             }
           });
+          registeredShortcuts.set(shortcut, { section: sec.key, slot: i });
+          registeredCount++;
         } catch (e) {
-          // Shortcut may conflict with system — skip silently
           console.warn(`Failed to register ${shortcut}:`, e);
         }
       }
     }
 
-    // Master OFF: Option+Cmd+0 (Mac) or Ctrl+Shift+0 (Win)
-    const masterKey = isMac ? "Option+CommandOrControl+0" : "Control+Shift+0";
-    try {
-      await register(masterKey, masterAllOff);
-    } catch (e) {
-      console.warn("Failed to register master off shortcut:", e);
+    // Master OFF
+    const masterKey = getDefaultMasterKey();
+    if (!registeredShortcuts.has(masterKey)) {
+      try {
+        await register(masterKey, masterAllOff);
+        registeredShortcuts.set(masterKey, { section: "_master", slot: 0 });
+      } catch (e) {
+        console.warn("Failed to register master off shortcut:", e);
+      }
     }
 
-    if (isMac) {
+    // Update legend with custom info if any custom hotkeys exist
+    const hasCustom = Object.values(config.slots).some(sec =>
+      Object.values(sec).some(s => s.hotkey)
+    );
+    if (hasCustom) {
+      $hotkeyLeg.textContent = `✓ ${registeredCount} hotkeys (custom bindings active)`;
+    } else if (isMac) {
       $hotkeyLeg.textContent = "✓ ⌥⌘1-9 clip · ⌥⌃ tl · ⌥⇧ pre · ⌥⌃⇧ post · ⌥⌘0 OFF";
     } else {
       $hotkeyLeg.textContent = "✓ Ctrl⇧1-9 clip · Ctrl+Alt tl · Alt⇧ pre · Ctrl+Alt⇧ post · Ctrl⇧0 OFF";
@@ -910,13 +1112,29 @@ async function init() {
     if (e.key === "Enter") confirmSaveProfile();
   });
 
-  // Keyboard shortcuts within window
+  // Hotkey modal buttons
+  document.getElementById("btn-hotkey-save").addEventListener("click", saveHotkeyFromModal);
+  document.getElementById("btn-hotkey-cancel").addEventListener("click", closeHotkeyModal);
+  document.getElementById("btn-hotkey-clear").addEventListener("click", clearHotkeyFromModal);
+
+  // Global keydown listener for hotkey recording
   document.addEventListener("keydown", (e) => {
+    // If hotkey modal is open, route there first
+    if (hotkeyModalState && !document.getElementById("hotkey-modal").classList.contains("hidden")) {
+      onHotkeyKeyDown(e);
+      return;
+    }
+
     if ((e.metaKey || e.ctrlKey) && e.key === "r") {
       e.preventDefault();
       refresh();
     }
     if (e.key === "Escape") {
+      // Close hotkey modal first if open
+      if (hotkeyModalState && !document.getElementById("hotkey-modal").classList.contains("hidden")) {
+        closeHotkeyModal();
+        return;
+      }
       // Close any open modal first
       const modals = document.querySelectorAll(".modal:not(.hidden)");
       if (modals.length > 0) {

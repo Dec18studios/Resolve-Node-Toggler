@@ -501,3 +501,75 @@ html, body {
   background: var(--bg);
   color: var(--accent);
 }
+
+/* ── Hotkey Button (per slot) ────────────────────────────────── */
+.hotkey-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--dimmed);
+  font-family: var(--mono);
+  font-size: 9px;
+  cursor: pointer;
+  flex-shrink: 0;
+  white-space: nowrap;
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: all 0.15s ease;
+}
+
+.hotkey-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.hotkey-btn.has-hotkey {
+  color: var(--fg);
+  border-color: rgba(74, 158, 255, 0.3);
+}
+
+/* ── Hotkey Recording Modal ──────────────────────────────────── */
+.hotkey-modal-content {
+  min-width: 320px;
+  max-width: 400px;
+  text-align: center;
+}
+
+.hotkey-modal-slot {
+  font-size: 12px;
+  color: var(--dimmed);
+  margin-bottom: 16px;
+}
+
+.hotkey-display {
+  font-family: var(--mono);
+  font-size: 18px;
+  font-weight: 600;
+  padding: 20px 16px;
+  background: var(--bg);
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  color: var(--fg);
+  margin-bottom: 8px;
+  min-height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.2s;
+}
+
+.hotkey-display.recording {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.hotkey-modal-hint {
+  font-size: 10px;
+  color: var(--dimmed);
+  margin-bottom: 16px;
+}

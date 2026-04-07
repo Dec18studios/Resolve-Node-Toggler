@@ -14,6 +14,8 @@ use tauri::State;
 pub struct SlotConfig {
     pub tool: String,
     pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hotkey: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -204,11 +206,21 @@ fn spawn_bridge(bridge: &mut Bridge) -> Result<(), String> {
         sidecar_path.display()
     );
 
-    let mut child = Command::new(&python)
-        .arg(&sidecar_path)
+    let mut cmd = Command::new(&python);
+    cmd.arg(&sidecar_path)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    // On Windows, prevent the Python sidecar from spawning a visible console window
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    let mut child = cmd
         .spawn()
         .map_err(|e| format!("Failed to spawn Python bridge: {e}"))?;
 
@@ -311,13 +323,16 @@ fn bridge_set_node_enabled(
     )?;
 
     // Update local state tracking
+    // Key format uses :: separators to avoid ambiguity with tool names
+    // containing colons (e.g. "OFX: DCTL").  Matches original Python version.
     if result.get("success") == Some(&Value::Bool(true)) {
         if let Some(context) = result.get("context").and_then(|v| v.as_str()) {
-            let sk = if !label.is_empty() {
-                format!("{}:{}:{}:{}", section, tool, label, context)
+            let tool_part = if !label.is_empty() {
+                format!("{}:{}", tool, label)
             } else {
-                format!("{}:{}:{}", section, tool, context)
+                tool.clone()
             };
+            let sk = format!("{}::{}::{}", section, tool_part, context);
             let mut state_data = state.state_data.lock().map_err(|e| e.to_string())?;
             state_data.insert(sk, enabled);
             save_state_to_disk(&state_data);

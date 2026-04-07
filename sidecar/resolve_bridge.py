@@ -66,38 +66,69 @@ RESOLVE_SCRIPT_LIB = os.environ.get("RESOLVE_SCRIPT_LIB", "")
 
 # Auto-detect fusionscript location
 def _find_fusionscript():
-    """Find fusionscript DLL/so path."""
+    """Find fusionscript DLL/so path.
+
+    Search order matches the original resolve_node_toggle.py:
+      Windows: env var → Registry (HKLM+HKCU) → common paths → drive scan
+      macOS:   env var → known .app bundle path
+      Linux:   env var → /opt/resolve
+    """
     global RESOLVE_SCRIPT_LIB
     if RESOLVE_SCRIPT_LIB and os.path.exists(RESOLVE_SCRIPT_LIB):
         return RESOLVE_SCRIPT_LIB
 
     if IS_WINDOWS:
-        import winreg
-        candidates = []
-        # Registry
-        for key_path in [
-            r"SOFTWARE\Blackmagic Design\DaVinci Resolve",
-            r"SOFTWARE\WOW6432Node\Blackmagic Design\DaVinci Resolve",
-        ]:
-            try:
-                with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key_path) as key:
-                    install_path, _ = winreg.QueryValueEx(key, "InstallPath")
-                    dll = os.path.join(install_path, "fusionscript.dll")
-                    if os.path.isfile(dll):
-                        RESOLVE_SCRIPT_LIB = dll
-                        return dll
-            except (OSError, FileNotFoundError):
-                pass
-        # Common paths
-        for base in [
-            os.path.join(os.environ.get("PROGRAMFILES", ""),
-                         "Blackmagic Design", "DaVinci Resolve"),
-            r"C:\Program Files\Blackmagic Design\DaVinci Resolve",
-        ]:
-            dll = os.path.join(base, "fusionscript.dll")
-            if os.path.isfile(dll):
-                RESOLVE_SCRIPT_LIB = dll
-                return dll
+        try:
+            import winreg
+        except ImportError:
+            winreg = None
+
+        # 1. Registry — check both HKLM and HKCU, including WOW6432Node
+        if winreg:
+            for hive in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
+                for key_path in [
+                    r"SOFTWARE\Blackmagic Design\DaVinci Resolve",
+                    r"SOFTWARE\WOW6432Node\Blackmagic Design\DaVinci Resolve",
+                ]:
+                    try:
+                        with winreg.OpenKey(hive, key_path) as key:
+                            install_path, _ = winreg.QueryValueEx(key, "InstallPath")
+                            if install_path:
+                                dll = os.path.join(install_path, "fusionscript.dll")
+                                if os.path.isfile(dll):
+                                    RESOLVE_SCRIPT_LIB = dll
+                                    return dll
+                    except (OSError, FileNotFoundError):
+                        pass
+
+        # 2. Common paths (including x86 and Studio variants)
+        for prog in (os.environ.get("PROGRAMFILES", r"C:\Program Files"),
+                     os.environ.get("PROGRAMFILES(X86)", r"C:\Program Files (x86)"),
+                     r"C:\Program Files",
+                     r"C:\Program Files (x86)"):
+            for variant in ("DaVinci Resolve", "DaVinci Resolve Studio"):
+                dll = os.path.join(prog, "Blackmagic Design", variant, "fusionscript.dll")
+                if os.path.isfile(dll):
+                    RESOLVE_SCRIPT_LIB = dll
+                    return dll
+
+        # 3. Scan fixed drives
+        try:
+            import string
+            for letter in string.ascii_uppercase:
+                drive = f"{letter}:\\"
+                if not os.path.isdir(drive):
+                    continue
+                for root_dir in (os.path.join(drive, "Program Files"),
+                                 os.path.join(drive, "Program Files (x86)")):
+                    for variant in ("DaVinci Resolve", "DaVinci Resolve Studio"):
+                        dll = os.path.join(root_dir, "Blackmagic Design", variant, "fusionscript.dll")
+                        if os.path.isfile(dll):
+                            RESOLVE_SCRIPT_LIB = dll
+                            return dll
+        except Exception:
+            pass
+
     elif IS_MAC:
         so = "/Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/Libraries/Fusion/fusionscript.so"
         if os.path.isfile(so):
@@ -117,7 +148,12 @@ def _find_fusionscript():
 
 
 def _setup_environment():
-    """Set up sys.path and env for Resolve scripting API."""
+    """Set up sys.path and env for Resolve scripting API.
+
+    Mirrors the environment setup from the original resolve_node_toggle.py,
+    including DYLD_LIBRARY_PATH on macOS which is required for fusionscript.so
+    to resolve its dependencies.
+    """
     _find_fusionscript()
 
     modules_path = os.path.join(RESOLVE_SCRIPT_API, "Modules")
@@ -134,10 +170,25 @@ def _setup_environment():
             path = os.environ.get("PATH", "")
             if lib_dir not in path:
                 os.environ["PATH"] = lib_dir + os.pathsep + path
+        elif IS_MAC:
+            # CRITICAL: fusionscript.so needs its library dir in DYLD_LIBRARY_PATH
+            # to resolve dependencies. Without this, loading fails on macOS.
+            dyld = os.environ.get("DYLD_LIBRARY_PATH", "")
+            if lib_dir not in dyld:
+                os.environ["DYLD_LIBRARY_PATH"] = lib_dir + ":" + dyld if dyld else lib_dir
+                _log(f"[BRIDGE] Set DYLD_LIBRARY_PATH: {os.environ['DYLD_LIBRARY_PATH']}")
+        else:
+            # Linux: LD_LIBRARY_PATH
+            ld = os.environ.get("LD_LIBRARY_PATH", "")
+            if lib_dir not in ld:
+                os.environ["LD_LIBRARY_PATH"] = lib_dir + ":" + ld if ld else lib_dir
 
-    os.environ.setdefault("RESOLVE_SCRIPT_API", RESOLVE_SCRIPT_API)
+    # Set env vars unconditionally (not setdefault) so DaVinciResolveScript.py
+    # picks up the correct paths even if empty strings were inherited.
+    os.environ["RESOLVE_SCRIPT_API"] = RESOLVE_SCRIPT_API
     if RESOLVE_SCRIPT_LIB:
-        os.environ.setdefault("RESOLVE_SCRIPT_LIB", RESOLVE_SCRIPT_LIB)
+        os.environ["RESOLVE_SCRIPT_LIB"] = RESOLVE_SCRIPT_LIB
+    os.environ["PYTHONPATH"] = modules_path
     os.environ.setdefault("PYTHONPATH",
                           os.path.join(RESOLVE_SCRIPT_API, "Modules"))
 
@@ -429,9 +480,12 @@ def _toggle_node(section, tool, label, force_state=None):
     if force_state is not None:
         new_val = force_state
     else:
-        # We need to read current state — Resolve API doesn't have GetNodeEnabled,
-        # so we rely on the state tracking done by the Tauri frontend
-        new_val = True  # Default to enable for toggle without state
+        # Resolve API doesn't expose GetNodeEnabled, and this sidecar is
+        # stateless — the Tauri frontend tracks toggle state.  Callers
+        # should always use set_node_enabled (with explicit state) instead
+        # of toggle_node.  If toggle_node is called without state we try
+        # to disable (safer default — user can always click again to enable).
+        new_val = False
 
     result = graph.SetNodeEnabled(idx, new_val)
     node_label = graph.GetNodeLabel(idx) or f"Node {idx}"
