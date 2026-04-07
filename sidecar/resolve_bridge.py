@@ -147,6 +147,27 @@ def _find_fusionscript():
     return ""
 
 
+def _preload_fusionscript_mac(lib_dir):
+    """Pre-load fusionscript.so on macOS using ctypes to work around SIP.
+
+    macOS SIP strips DYLD_LIBRARY_PATH from processes launched by Finder-started
+    apps, which prevents dlopen from finding fusionscript.so's dependencies.
+    Loading the .so explicitly by full path with RTLD_GLOBAL makes its symbols
+    available for subsequent `import fusionscript` calls.
+    """
+    import ctypes
+    so_path = os.path.join(lib_dir, "fusionscript.so") if os.path.isdir(lib_dir) else lib_dir
+    if not os.path.isfile(so_path):
+        _log(f"[BRIDGE] Pre-load skip: {so_path} not found")
+        return
+    try:
+        ctypes.CDLL(so_path, mode=ctypes.RTLD_GLOBAL)
+        _log(f"[BRIDGE] Pre-loaded fusionscript.so via ctypes: {so_path}")
+    except OSError as e:
+        _log(f"[BRIDGE] Pre-load fusionscript.so failed: {e}")
+        # Not fatal — the normal import strategies may still work
+
+
 def _setup_environment():
     """Set up sys.path and env for Resolve scripting API.
 
@@ -177,6 +198,11 @@ def _setup_environment():
             if lib_dir not in dyld:
                 os.environ["DYLD_LIBRARY_PATH"] = lib_dir + ":" + dyld if dyld else lib_dir
                 _log(f"[BRIDGE] Set DYLD_LIBRARY_PATH: {os.environ['DYLD_LIBRARY_PATH']}")
+
+            # macOS SIP strips DYLD_LIBRARY_PATH when launching apps from Finder.
+            # Pre-load fusionscript.so by full path using ctypes so its symbols are
+            # available when DaVinciResolveScript.py does `import fusionscript`.
+            _preload_fusionscript_mac(lib_dir)
         else:
             # Linux: LD_LIBRARY_PATH
             ld = os.environ.get("LD_LIBRARY_PATH", "")

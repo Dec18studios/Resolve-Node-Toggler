@@ -564,9 +564,12 @@ async function masterAllOff() {
 // Refresh
 // ---------------------------------------------------------------------------
 async function refresh() {
+  let connected = false;
+
   // Connect if needed
   try {
     await invoke("bridge_connect");
+    connected = true;
   } catch (e) {
     $statusDot.className = "dot disconnected";
     if (String(e).includes("not running") || String(e).includes("not enabled")) {
@@ -583,48 +586,51 @@ async function refresh() {
       flash(String(e), 8000);
     }
     $clipName.textContent = "";
-    return;
   }
 
-  // Get graphs
-  let graphResult;
-  try {
-    graphResult = await invoke("bridge_get_graphs");
-  } catch (e) {
-    $statusDot.className = "dot disconnected";
-    $statusText.textContent = "Connection lost";
-    flash(String(e), 5000);
-    return;
-  }
+  // Get graphs (only if connected)
+  if (connected) {
+    let graphResult;
+    try {
+      graphResult = await invoke("bridge_get_graphs");
+    } catch (e) {
+      $statusDot.className = "dot disconnected";
+      $statusText.textContent = "Connection lost";
+      flash(String(e), 5000);
+      connected = false;
+    }
 
-  graphsCache = graphResult.graphs || {};
-  const clipName = graphResult.clip_name || "";
+    if (graphResult) {
+      graphsCache = graphResult.graphs || {};
+      const clipName = graphResult.clip_name || "";
 
-  // Fetch nodes for each available section
-  nodesCache = {};
-  for (const sec of SECTIONS) {
-    if (graphsCache[sec.key]) {
-      try {
-        const nodeResult = await invoke("bridge_get_nodes", { section: sec.key });
-        nodesCache[sec.key] = nodeResult.nodes || [];
-      } catch (e) {
-        nodesCache[sec.key] = [];
+      // Fetch nodes for each available section
+      nodesCache = {};
+      for (const sec of SECTIONS) {
+        if (graphsCache[sec.key]) {
+          try {
+            const nodeResult = await invoke("bridge_get_nodes", { section: sec.key });
+            nodesCache[sec.key] = nodeResult.nodes || [];
+          } catch (e) {
+            nodesCache[sec.key] = [];
+          }
+        }
+      }
+
+      // Update status
+      if (graphsCache.clip) {
+        $statusDot.className = "dot connected";
+        $statusText.textContent = "Connected";
+        $clipName.textContent = clipName;
+      } else {
+        $statusDot.className = "dot partial";
+        $statusText.textContent = graphResult.error || "Partial";
+        $clipName.textContent = "";
       }
     }
   }
 
-  // Update status
-  if (graphsCache.clip) {
-    $statusDot.className = "dot connected";
-    $statusText.textContent = "Connected";
-    $clipName.textContent = clipName;
-  } else {
-    $statusDot.className = "dot partial";
-    $statusText.textContent = graphResult.error || "Partial";
-    $clipName.textContent = "";
-  }
-
-  // Rebuild slot rows
+  // Rebuild slot rows (always — shows saved config even when disconnected)
   for (const sec of SECTIONS) {
     const secEl = getSectionEl(sec.key);
     if (!secEl) continue;

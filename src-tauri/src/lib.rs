@@ -182,10 +182,25 @@ fn spawn_bridge(bridge: &mut Bridge) -> Result<(), String> {
             .as_ref()
             .map(|d| d.join("../Resources/resolve_bridge.py"))
             .unwrap_or_default(),
+        // macOS .app bundle: Tauri may preserve relative paths
+        exe_dir
+            .as_ref()
+            .map(|d| d.join("../Resources/_up_/sidecar/resolve_bridge.py"))
+            .unwrap_or_default(),
+        // macOS .app bundle: sidecar subfolder in Resources
+        exe_dir
+            .as_ref()
+            .map(|d| d.join("../Resources/sidecar/resolve_bridge.py"))
+            .unwrap_or_default(),
         // Linux deb/AppImage: resources/ subfolder
         exe_dir
             .as_ref()
             .map(|d| d.join("resources/resolve_bridge.py"))
+            .unwrap_or_default(),
+        // Linux: Tauri may preserve relative paths
+        exe_dir
+            .as_ref()
+            .map(|d| d.join("resources/_up_/sidecar/resolve_bridge.py"))
             .unwrap_or_default(),
     ];
 
