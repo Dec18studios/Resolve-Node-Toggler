@@ -27,6 +27,9 @@ let nodesCache = {};    // section -> [node, ...]
 let flashTimer = null;
 let registeredShortcuts = new Map();  // shortcut string -> { section, slot }
 let hotkeyModalState = null;          // { section, slot, resolve, reject }
+let toggleBusy = {};                  // "section::slot" -> true while toggle in-flight
+const TOGGLE_DEBOUNCE_MS = 250;       // ignore repeat triggers within this window
+let toggleLastFired = {};             // "section::slot" -> timestamp of last toggle
 
 // ---------------------------------------------------------------------------
 // DOM refs
@@ -379,6 +382,16 @@ function findNodeInCache(nodes, tool, label) {
 }
 
 async function doToggle(sectionKey, slotNum, btn) {
+  const toggleKey = `${sectionKey}::${slotNum}`;
+
+  // Debounce: ignore if a toggle is already in-flight for this slot
+  if (toggleBusy[toggleKey]) return;
+
+  // Debounce: ignore rapid re-triggers (Windows key repeat / double-click)
+  const now = Date.now();
+  if (toggleLastFired[toggleKey] && (now - toggleLastFired[toggleKey]) < TOGGLE_DEBOUNCE_MS) return;
+  toggleLastFired[toggleKey] = now;
+
   const slotCfg = config.slots[sectionKey]?.[String(slotNum)];
   if (!slotCfg || (!slotCfg.tool && !slotCfg.label)) {
     flash("Select a tool from the dropdown first");
@@ -396,6 +409,7 @@ async function doToggle(sectionKey, slotNum, btn) {
   const current = stateData[sk] ?? false;
   const newVal = !current;
 
+  toggleBusy[toggleKey] = true;
   try {
     const result = await invoke("bridge_set_node_enabled", {
       section: sectionKey,
@@ -423,6 +437,8 @@ async function doToggle(sectionKey, slotNum, btn) {
     }
   } catch (e) {
     flash(`Error: ${e}`);
+  } finally {
+    toggleBusy[toggleKey] = false;
   }
 }
 
