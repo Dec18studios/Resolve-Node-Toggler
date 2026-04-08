@@ -225,7 +225,7 @@ fn spawn_bridge(bridge: &mut Bridge) -> Result<(), String> {
     cmd.arg(&sidecar_path)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+        .stderr(Stdio::null());
 
     // On Windows, prevent the Python sidecar from spawning a visible console window
     #[cfg(target_os = "windows")]
@@ -263,13 +263,33 @@ fn spawn_bridge(bridge: &mut Bridge) -> Result<(), String> {
     Ok(())
 }
 
+fn ensure_bridge_alive(bridge: &mut Bridge) -> Result<(), String> {
+    let needs_respawn = match bridge.child.as_mut() {
+        None => true,
+        Some(child) => match child.try_wait() {
+            Ok(Some(_status)) => {
+                // Process exited — clean up
+                eprintln!("[TAURI] Bridge process exited, will respawn");
+                true
+            }
+            Ok(None) => false, // still running
+            Err(_) => true,    // can't check — treat as dead
+        },
+    };
+    if needs_respawn {
+        bridge.child = None;
+        bridge.stdin = None;
+        bridge.stdout = None;
+        spawn_bridge(bridge)?;
+    }
+    Ok(())
+}
+
 fn call_bridge(state: &AppState, method: &str, params: Value) -> Result<Value, String> {
     let mut bridge = state.bridge.lock().map_err(|e| e.to_string())?;
 
-    // Auto-spawn if not running
-    if bridge.child.is_none() {
-        spawn_bridge(&mut bridge)?;
-    }
+    // Auto-spawn if not running, or respawn if process exited
+    ensure_bridge_alive(&mut bridge)?;
 
     let id = state.next_id();
     let request = json!({
@@ -280,10 +300,27 @@ fn call_bridge(state: &AppState, method: &str, params: Value) -> Result<Value, S
 
     let request_str = serde_json::to_string(&request).map_err(|e| e.to_string())?;
 
-    // Write to stdin
-    let stdin = bridge.stdin.as_mut().ok_or("Bridge stdin unavailable")?;
-    writeln!(stdin, "{}", request_str).map_err(|e| format!("Write failed: {e}"))?;
-    stdin.flush().map_err(|e| format!("Flush failed: {e}"))?;
+    // Write to stdin — if this fails, the bridge likely died mid-request;
+    // respawn once and retry.
+    let write_result = (|| -> Result<(), String> {
+        let stdin = bridge.stdin.as_mut().ok_or("Bridge stdin unavailable")?;
+        writeln!(stdin, "{}", request_str).map_err(|e| format!("Write failed: {e}"))?;
+        stdin.flush().map_err(|e| format!("Flush failed: {e}"))?;
+        Ok(())
+    })();
+
+    if let Err(e) = write_result {
+        eprintln!("[TAURI] Bridge write failed ({e}), respawning…");
+        bridge.child = None;
+        bridge.stdin = None;
+        bridge.stdout = None;
+        spawn_bridge(&mut bridge)?;
+
+        // Retry the write once on the fresh bridge
+        let stdin = bridge.stdin.as_mut().ok_or("Bridge stdin unavailable after respawn")?;
+        writeln!(stdin, "{}", request_str).map_err(|e| format!("Write failed after respawn: {e}"))?;
+        stdin.flush().map_err(|e| format!("Flush failed after respawn: {e}"))?;
+    }
 
     // Read response
     let stdout = bridge.stdout.as_mut().ok_or("Bridge stdout unavailable")?;
