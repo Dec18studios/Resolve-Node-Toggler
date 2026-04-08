@@ -247,17 +247,41 @@ def _connect():
     global _resolve
 
     # Pre-load python3.dll on Windows
+    # fusionscript.dll links against python3.dll (Python Stable ABI).  Windows
+    # needs to resolve that dependency when loading the extension.  The most
+    # reliable fix is to copy python3.dll *next to* fusionscript.dll so
+    # Windows finds it via its "same directory as the DLL" search rule.
     if IS_WINDOWS:
         import ctypes
+        import shutil
+
+        # Find python3.dll from the running interpreter
+        p3_src = None
         for search_dir in [os.path.dirname(sys.executable), sys.prefix, sys.base_prefix]:
             p3 = os.path.join(search_dir, "python3.dll")
             if os.path.isfile(p3):
+                p3_src = p3
                 try:
                     ctypes.WinDLL(p3)
                     _log(f"[BRIDGE] Pre-loaded python3.dll from {p3}")
-                    break
-                except OSError:
-                    pass
+                except OSError as e:
+                    _log(f"[BRIDGE] Pre-load python3.dll failed: {e}")
+                break
+
+        # Copy python3.dll next to fusionscript.dll so Windows DLL loader
+        # can resolve the dependency.  This mirrors the fix from the original
+        # PyInstaller-based build that solved the same load failure.
+        if p3_src and RESOLVE_SCRIPT_LIB:
+            fs_dir = os.path.dirname(RESOLVE_SCRIPT_LIB) if os.path.isfile(RESOLVE_SCRIPT_LIB) else RESOLVE_SCRIPT_LIB
+            p3_dst = os.path.join(fs_dir, "python3.dll")
+            if not os.path.isfile(p3_dst):
+                try:
+                    shutil.copy2(p3_src, p3_dst)
+                    _log(f"[BRIDGE] Copied python3.dll -> {p3_dst}")
+                except (PermissionError, OSError) as e:
+                    _log(f"[BRIDGE] Cannot copy python3.dll to Resolve dir ({e}), relying on PATH")
+            else:
+                _log(f"[BRIDGE] python3.dll already at {p3_dst}")
 
     # Strategy 1: normal import
     sys.modules.pop("DaVinciResolveScript", None)
@@ -533,6 +557,12 @@ def _set_node_enabled(section, tool, label, enabled):
 
 def _scan():
     """Full scan of all sections with detailed node info."""
+    # Auto-connect if not already connected
+    if not _resolve:
+        conn = _connect()
+        if not conn.get("connected"):
+            return {"error": conn.get("error", "Cannot connect to Resolve")}
+
     result = {}
     for sec_key, sec_label in SECTIONS:
         graph, context = _get_graph_obj(sec_key)

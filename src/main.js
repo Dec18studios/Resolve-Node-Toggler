@@ -696,6 +696,12 @@ async function doScan() {
   try {
     const result = await invoke("bridge_scan");
     let text = "";
+    if (result.error) {
+      text = `  ⚠ ${result.error}\n\n  Make sure DaVinci Resolve is running and\n  Preferences → System → General → External scripting using → Local\n  is enabled.\n`;
+      output.textContent = text;
+      modal.classList.remove("hidden");
+      return;
+    }
     for (const sec of SECTIONS) {
       const data = result[sec.key];
       if (data && data.nodes && data.nodes.length > 0) {
