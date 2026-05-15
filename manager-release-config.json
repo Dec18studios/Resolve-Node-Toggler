@@ -3,11 +3,23 @@
   "displayName": "Resolve Node Toggler",
   "releaseRepo": "dec18studios/Resolve-Node-Toggler",
   "minManagerVersion": "0.1.0",
-  "hostProcesses": ["Resolve", "DaVinci Resolve"],
-  "requiredFamilies": ["macos", "windows", "linux"],
+  "hostProcesses": [
+    "Resolve",
+    "DaVinci Resolve"
+  ],
+  "requiredFamilies": [
+    "macos",
+    "windows",
+    "linux"
+  ],
   "category": "Workflow",
   "description": "Keyboard-driven node toggling for DaVinci Resolve with hotkey slots and profile management.",
-  "tags": ["workflow", "nodes", "hotkeys", "toggle"],
+  "tags": [
+    "workflow",
+    "nodes",
+    "hotkeys",
+    "toggle"
+  ],
   "assetRules": [
     {
       "family": "macos",
@@ -42,5 +54,6 @@
       "installPath": "/usr/local/bin",
       "installMode": "file-browse"
     }
-  ]
+  ],
+  "licenseTier": "free"
 }
